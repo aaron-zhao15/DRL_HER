@@ -1,3 +1,5 @@
+### Code heavily based on repository https://github.com/AlexHermansson/hindsight-experience-replay
+
 import random
 from collections import namedtuple
 

@@ -15,7 +15,7 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
 
-from environment.pirate_env import PirateEnv
+from pirate_env import PirateEnv
 import numpy as np
 import cv2
 import copy

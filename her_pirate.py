@@ -19,11 +19,14 @@ from pirate_env import PirateEnv
 import numpy as np
 import cv2
 import copy
+import json
 
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 writer = SummaryWriter(log_dir=log_dir)
+training_log = []
+json_log_path = os.path.join(log_dir, "training_log.json")
 
 Experience = namedtuple("Experience", field_names="state action reward next_state done")
 
@@ -240,6 +243,7 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
     num_opt_steps = 40
     max_steps = 200
     experiences_per_epoch = 5000
+    visualize_interval = 50
 
     # env = BitFlipEnvironment(num_bits)
     num_agents = 1
@@ -348,7 +352,22 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
         writer.add_scalar("Loss/Actor", actor_loss, epoch)
         writer.add_scalar("Success Rate", success_rate, epoch)
 
-        env.generate_video(f"{log_dir}/rollout_{epoch}.mp4")
+        epoch_data = {
+            "epoch": epoch + 1,
+            "epsilon": eps,
+            "success_rate": success_rate,
+            "critic_loss": critic_loss.item() if torch.is_tensor(critic_loss) else critic_loss,
+            "actor_loss": actor_loss.item() if torch.is_tensor(actor_loss) else actor_loss,
+        }
+
+        training_log.append(epoch_data)
+
+        # Write to file (overwrite each time to keep a clean log)
+        with open(json_log_path, "w") as f:
+            json.dump(training_log, f, indent=4)
+
+        if epoch % visualize_interval == 0:
+            env.generate_video(f"{log_dir}/rollout_{epoch}.mp4")
 
     # env.show_video(title="After Training")
     # env.generate_video(f"{log_dir}/pirate_rollout_{hindsight_replay}.mp4")
@@ -358,7 +377,7 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
 
 if __name__ == "__main__":
     bits = 50  # more than 10^15 states
-    epochs = 40
+    epochs = 4000
 
 
     for her in [True, False]:
@@ -366,7 +385,7 @@ if __name__ == "__main__":
         random.seed(0)
         np.random.seed(0)
         success = train(bits, epochs, her)
-        plt.plot(success, label="HER-DQN" if her else "DQN")
+        plt.plot(success, label="HER-PADDPG" if her else "PADDPG")
 
     plt.legend()
     plt.xlabel("Epoch")

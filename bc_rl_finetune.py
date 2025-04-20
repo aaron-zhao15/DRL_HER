@@ -5,6 +5,8 @@ import random
 from collections import namedtuple
 import copy
 
+import json
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -18,6 +20,11 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 writer = SummaryWriter(log_dir=log_dir)
+bc_log = []
+bc_log_path = os.path.join(log_dir, "bc_training_log.json")
+training_log = []
+json_log_path = os.path.join(log_dir, "training_log.json")
+
 
 class Actor(nn.Module):
     def __init__(self, state_dim, discrete_dim, continuous_dim, hidden_dim=64, device="cpu"):
@@ -275,6 +282,15 @@ for epoch in range(num_epochs):
     writer.add_scalar("BC/Loss", total_loss, epoch)
     writer.add_scalar("BC/Accuracy", accuracy, epoch)
 
+    epoch_data = {
+        "epoch": epoch + 1,
+        "loss": total_loss,
+        "accuracy": accuracy,
+    }
+    bc_log.append(epoch_data)
+    with open(bc_log_path, "w") as f:
+        json.dump(bc_log, f, indent=4)
+
 state, goal = env.reset(seed=1)
 successes = 0
 for _ in range(64):
@@ -481,11 +497,12 @@ class PDDPGAgent:
         return critic_loss.item(), actor_loss.item()
 
 
-hindsight_replay=True
+hindsight_replay=False
 num_epochs=4000
 eps_max=0.2
 eps_min=0.0
 exploration_fraction=0.5
+visualize_interval = 50
 
 """
 Training loop for the bit flip experiment introduced in https://arxiv.org/pdf/1707.01495.pdf using DQN or DQN with
@@ -609,7 +626,22 @@ for epoch in range(num_epochs):
     writer.add_scalar("Loss/Actor", actor_loss, epoch)
     writer.add_scalar("Success Rate", success_rate, epoch)
 
-    env.generate_video(f"{log_dir}/rollout_{epoch}.mp4")
+    epoch_data = {
+        "epoch": epoch + 1,
+        "epsilon": eps,
+        "success_rate": success_rate,
+        "critic_loss": critic_loss.item() if torch.is_tensor(critic_loss) else critic_loss,
+        "actor_loss": actor_loss.item() if torch.is_tensor(actor_loss) else actor_loss,
+    }
+
+    training_log.append(epoch_data)
+
+    # Write to file (overwrite each time to keep a clean log)
+    with open(json_log_path, "w") as f:
+        json.dump(training_log, f, indent=4)
+
+    if epoch % visualize_interval == 0:
+        env.generate_video(f"{log_dir}/rollout_{epoch}.mp4")
 
 # env.show_video(title="After Training")
 # env.generate_video(f"{log_dir}/pirate_rollout_{hindsight_replay}.mp4")

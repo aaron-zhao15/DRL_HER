@@ -18,7 +18,8 @@ from pirate_env import PirateEnv
 
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+# log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+log_dir = "runs/BC_w_HER_dense"
 writer = SummaryWriter(log_dir=log_dir)
 bc_log = []
 bc_log_path = os.path.join(log_dir, "bc_training_log.json")
@@ -416,7 +417,7 @@ class PDDPGAgent:
         # action = self.actor(state)
         # q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
         q_values, continuous_action = self.actor(state)
-        epsilon=0
+        # epsilon=0
         if random.random() > epsilon:
             tgt_action = q_values.argmax(dim=1).unsqueeze(1)
         else:
@@ -434,7 +435,7 @@ class PDDPGAgent:
         # action = self.target_actor(state)
         # q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
         q_values, continuous_action = self.target_actor(state)
-        epsilon=0
+        # epsilon=0
         if random.random() > epsilon:
             tgt_action = q_values.argmax(dim=1).unsqueeze(1)
         else:
@@ -463,7 +464,7 @@ class PDDPGAgent:
     def update(self, state, action, reward, next_state, done, episode=0):
         
         # Critic update
-        actor_wait_step = 100
+        self.actor_wait_step = 100
         
         with torch.no_grad():
             # discrete_qs, continuous = self.target_actor(state)
@@ -476,7 +477,7 @@ class PDDPGAgent:
         q = self.critic(state_action.detach())
         critic_loss = nn.MSELoss()(q, target_q.detach())
 
-        # if episode < actor_wait_step:
+        # if episode < self.actor_wait_step:
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
@@ -486,7 +487,7 @@ class PDDPGAgent:
         state_action = torch.cat((state, actions), dim=1)
         actor_loss = -self.target_critic(state_action).mean()
 
-        if episode > actor_wait_step:
+        if episode > self.actor_wait_step:
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
@@ -497,12 +498,12 @@ class PDDPGAgent:
         return critic_loss.item(), actor_loss.item()
 
 
-hindsight_replay=False
+hindsight_replay=True
 num_epochs=4000
 eps_max=0.2
 eps_min=0.0
 exploration_fraction=0.5
-visualize_interval = 50
+visualize_interval = 100
 
 """
 Training loop for the bit flip experiment introduced in https://arxiv.org/pdf/1707.01495.pdf using DQN or DQN with
@@ -546,7 +547,10 @@ success_rates = []
 for epoch in range(num_epochs):
 
     # Decay epsilon linearly from eps_max to eps_min
-    eps = max(eps_max - epoch * (eps_max - eps_min) / int(num_epochs * exploration_fraction), eps_min)
+    eps = max(eps_max - epoch * (eps_max - eps_min) / int(num_epochs * exploration_fraction), eps_min) if exploration_fraction else 0
+    if epoch < agent.actor_wait_step:
+        # don't explore when training critic
+        eps = 0
     print("Epoch: {}, exploration: {:.0f}%, success rate: {:.2f}".format(epoch + 1, 100 * eps, success_rate))
 
     successes = 0

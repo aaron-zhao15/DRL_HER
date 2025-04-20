@@ -163,14 +163,17 @@ class PirateEnv(gym.Env):
         rewards, dones = np.zeros_like(agent_target_distance), np.zeros_like(agent_target_distance)
         for i in range(self.num_agents):
             if agent_target_distance[i] < capture_threshold[i] and agent_capturing[i] and capture_count[i] < 1:
-                rewards[i] = 100 #self.max_steps-self.steps
+                rewards[i] = 1 #self.max_steps-self.steps
                 dones[i] = 1
             elif agent_target_distance[i] > capture_threshold[i]:
-                rewards[i] = -agent_target_distance[i] #- self.steps
+                rewards[i] = -agent_target_distance[i]/100 #- self.steps
             elif agent_target_distance[i] <= capture_threshold[i]:
                 rewards[i] = 0 #- self.steps
 
-            if capture_count[i] >= 1 or target_disabled[i] == 1:
+            if capture_count[i] >= 1:
+                rewards[i] = -1
+                dones[i] = 1
+            if target_disabled[i] == 1:
                 dones[i] = 1
             
             # elif agent_capturing[i]:

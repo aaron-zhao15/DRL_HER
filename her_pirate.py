@@ -23,10 +23,7 @@ import json
 
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-writer = SummaryWriter(log_dir=log_dir)
-training_log = []
-json_log_path = os.path.join(log_dir, "training_log.json")
+
 
 Experience = namedtuple("Experience", field_names="state action reward next_state done")
 
@@ -235,6 +232,11 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
     number of epochs according to the parameter exploration_fraction. Returns a list of the success rates over the
     epochs.
     """
+    # log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    log_dir = "runs/RL_w_HER_dense" if hindsight_replay else "runs/RL_wo_HER_dense"
+    writer = SummaryWriter(log_dir=log_dir)
+    training_log = []
+    json_log_path = os.path.join(log_dir, "training_log.json")
 
     # Parameters taken from the paper, some additional once are found in the constructor of the DQNAgent class.
     future_k = 8

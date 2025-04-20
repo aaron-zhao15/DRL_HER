@@ -48,11 +48,25 @@ To enable or tweak **Hindsight Experience Replay (HER)** and other training para
 bc_rl_finetune.py
 ```
 
-Scroll to line 484 in bc_rl_finetune.py to the section near this comment:
+Scroll to line 484 in bc_rl_finetune.py, you can these these code:
 
 ```python
 """
-Training loop for the bit flip experiment introduced in https://arxiv.org/pdf/1707.01495.pdf ...
+hindsight_replay=True
+num_epochs=4000
+eps_max=0.2
+eps_min=0.0
+exploration_fraction=0.5
+
+future_k = 8
+num_cycles = 1
+num_episodes = 16
+num_opt_steps = 40
+max_steps = 200
+experiences_per_epoch = 5000
+
+# env = BitFlipEnvironment(num_bits)
+num_agents = 1
 """
 ```
 

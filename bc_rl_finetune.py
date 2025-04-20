@@ -321,7 +321,7 @@ for _ in range(64):
         if torch.sum(reward) > 0:
             successes += 1
 
-        if torch.any(done):
+        if done.all():
             break
 print(successes/64)
 # Play and save rollout video
@@ -575,7 +575,7 @@ for epoch in range(num_epochs):
             if reward > 0:
                 successes += 1
                 break
-            if torch.any(done):
+            if done.all():
                 break
 
 

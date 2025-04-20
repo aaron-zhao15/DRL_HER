@@ -301,7 +301,7 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
                 if reward > 0:
                     successes += 1
                     break
-                if torch.any(done):
+                if done.all():
                     break
 
 

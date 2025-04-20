@@ -1,48 +1,141 @@
+
+
 # DRL_HER
 
-This is an implementation of Hindsight Experience Replay (HER) in the BitFlip environment. It is based on the implementation by Alex Hermansson in the following repository: https://github.com/AlexHermansson/hindsight-experience-replay
+This is an implementation of **Hindsight Experience Replay (HER)** in a custom gridworld-like environment called `PirateEnv`, along with behavior cloning (BC) pretraining and a continuous + discrete hybrid actor-critic architecture using PyTorch.
 
-## Requirements
+It extends [Alex Hermansson’s HER in BitFlip](https://github.com/AlexHermansson/hindsight-experience-replay) and adapts it for continuous action environments.
 
-To run the code, you'll need the following dependencies:
 
-- Python >= 3.5 (Python 3.8+ preferred)
-- `torch`
-- `matplotlib`
-- `seaborn`
-- `numpy`
-- `random`
-- `collections`
+## Installation
 
-You can install the required packages using `pip`:
+### Step 1: Clone the repository
 
 ```bash
-pip install torch matplotlib seaborn numpy
+git clone https://github.com/aaron-zhao15/DRL_HER.git
+cd DRL_HER
 ```
 
-To run the training loop, simply execute:
+### Step 2: Setup Environment
+
+Ensure `conda` is installed, then run:
 
 ```bash
-python bitflip.py
+conda env create -f environment.yml
+conda activate HER-env
 ```
 
-By default, this will run two training loops, first with HER and second without HER. Then it will display the two training curves.
+> ⚠️ If you're on macOS and encounter issues with specific `torch` versions, check compatibility with your Python and system architecture.
+
+## Running the Code
+
+### Pretrain the Actor using Behavior Cloning
+
+```bash
+python bc_rl_finetune.py
+```
+
+- Trains the actor to mimic a heuristic.
+- Logs loss/accuracy to TensorBoard.
+- Generates a rollout video at the end.
 
 
-### Key Concepts
+### 🔧 Custom Configuration Instructions
 
-- **State Representation**: The state is a tensor of bits, each of which is either 0 or 1. The goal is to transform this state into another random bit string (goal) by flipping individual bits.
-  
-- **Actions**: The action is simply an index corresponding to the bit that will be flipped in the state.
-  
-- **Reward Function**: The reward is `1` when the agent's state matches the goal. If the states do not match, a small negative reward of `-0.1` is given to encourage efficient progress towards the goal.
+To enable or tweak **Hindsight Experience Replay (HER)** and other training parameters, open the file:
 
-### Bit Flip Environment Flow
+```bash
+bc_rl_finetune.py
+```
 
-1. **Initialization**: The environment starts with a random state and goal.
-2. **Reset**: The environment can be reset, which re-randomizes the state and goal.
-3. **Action**: The agent selects a bit (by its index) to flip, changing the state.
-4. **Reward**: The reward is computed based on the proximity of the state to the goal.
-5. **Completion**: The environment is considered "done" when the agent's state matches the goal.
+Scroll to line 484 in bc_rl_finetune.py, you can these these code:
 
+```python
+"""
+hindsight_replay=True
+num_epochs=4000
+eps_max=0.2
+eps_min=0.0
+exploration_fraction=0.5
+
+future_k = 8
+num_cycles = 1
+num_episodes = 16
+num_opt_steps = 40
+max_steps = 200
+experiences_per_epoch = 5000
+
+# env = BitFlipEnvironment(num_bits)
+num_agents = 1
+"""
+```
+
+Update the following variables as needed:
+
+| Variable | Description |
+|----------|-------------|
+| `hindsight_replay=True` | Set to `True` to enable HER |
+| `num_epochs=4000` | Total number of training epochs |
+| `eps_max=0.2` | Initial exploration rate (epsilon-greedy) |
+| `eps_min=0.0` | Final exploration rate |
+| `exploration_fraction=0.5` | Fraction of epochs used for epsilon decay |
+| `future_k=8` | Number of future goals sampled in HER |
+| `num_episodes=16` | Number of episodes per epoch |
+| `num_opt_steps=40` | Gradient updates per epoch |
+| `max_steps=200` | Max steps per episode |
+| `num_agents=1` | Number of agents in the environment |
+
+Once updated, rerun:
+
+```bash
+python bc_rl_finetune.py
+```
+
+
+### HER Training with PDDPG
+
+HER and actor-critic fine-tuning will automatically follow after the behavior cloning pretraining within the same script.
+
+```bash
+# From inside bc_rl_finetune.py (runs after BC phase)
+# Trains agent using PDDPG + HER
+# Generates a rollout video for each epoch
+```
+
+## Logs and Videos
+
+- TensorBoard logs saved to: `runs/YYYY-MM-DD_HH-MM-SS`
+- Rollout videos saved per epoch: `runs/YYYY-MM-DD_HH-MM-SS/rollout_*.mp4`
+
+To view logs:
+
+```bash
+tensorboard --logdir runs/
+```
+
+## Custom Environment: PirateEnv
+
+The `PirateEnv` is a multi-agent grid world environment where each agent tries to:
+- **Move** toward a goal
+- **Capture** the goal under specific constraints
+
+The environment provides:
+- `observation_space`, `goal_space`
+- `reset()`, `step()`, `compute_reward()`
+- video generation via `generate_video()`
+
+## File Overview
+
+| File | Description |
+|------|-------------|
+| `bc_rl_finetune.py` | Main training script: behavior cloning, HER training, logging |
+| `pirate_env.py` | Custom Gym-like environment for multi-agent task |
+| `environment.yml` | Conda environment setup file |
+| `runs/` | Auto-generated log and video directory |
+
+## Acknowledgements
+
+- [OpenAI HER Paper (Andrychowicz et al., 2017)](https://arxiv.org/pdf/1707.01495.pdf)
+- [Alex Hermansson’s HER BitFlip Repo](https://github.com/AlexHermansson/hindsight-experience-replay)
+- PyTorch + Stable Baselines3 inspiration
 

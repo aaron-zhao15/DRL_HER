@@ -4,23 +4,14 @@ This is an implementation of Hindsight Experience Replay (HER) in the BitFlip en
 
 ## Requirements
 
-To run the code, you'll need the following dependencies:
-
-- Python >= 3.5 (Python 3.8+ preferred)
-- `torch`
-- `matplotlib`
-- `seaborn`
-- `numpy`
-- `random`
-- `collections`
-
-You can install the required packages using `pip`:
+To run the code, you'll need conda installed then run
 
 ```bash
-pip install torch matplotlib seaborn numpy
+conda env create -f environment.yml
+conda activate HER-env
 ```
 
-To run the training loop, simply execute:
+To run the training loop of bit flip, simply execute:
 
 ```bash
 python bitflip.py

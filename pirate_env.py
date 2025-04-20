@@ -17,7 +17,7 @@ import numpy as np
 import cv2
 
 class ContinuousMovableObject:
-    def __init__(self, x, y, grid_size, speed=1, occupancy_radius=1):
+    def __init__(self, x, y, grid_size=1, speed=1, occupancy_radius=1):
         self.position = np.array([x, y])
         self.grid_size = grid_size
         self.occupancy_radius = occupancy_radius
@@ -25,7 +25,7 @@ class ContinuousMovableObject:
 
     def move(self, movement, other_agents=None):
         new_position = self.position + self.speed * np.array(movement)
-        new_position = np.clip(new_position, 0, self.grid_size - 1)
+        new_position = np.clip(new_position, 0, self.grid_size)
         
         # for other_agent in other_agents:
         #     distance = np.linalg.norm(new_position - other_agent.position)
@@ -75,14 +75,15 @@ class PirateEnv(gym.Env):
             np.random.uniform(0, self.grid_size),
             np.random.uniform(0, self.grid_size),
             self.grid_size,
-            speed=0.5 * i + 0.5,
+            speed=2 * (i+1),
             occupancy_radius=self.occupancy_radius
         ) for i in range(self.num_agents)]
 
         self.targets = [ContinuousMovableObject(
             np.random.uniform(0, self.grid_size),
             np.random.uniform(0, self.grid_size),
-            self.grid_size
+            self.grid_size,
+            speed=2,
         ) for _ in range(self.num_targets)]
 
         self.targets_disabled = [0] * self.num_targets
@@ -105,18 +106,43 @@ class PirateEnv(gym.Env):
             discrete_action, continuous_action = action[0], action[1:3]
             moving = (discrete_action == 0)
             capturing = (discrete_action == 1)
+            # Discretized movement/actions
+            # moving, capturing = 0, 0
+            # if 0 <= action < 8:
+            #     moving = 1
+            #     if action == 0:
+            #         continuous_action = np.array([1, 0])
+            #     elif action == 1:
+            #         continuous_action = np.array([1, 1])
+            #     elif action == 2:
+            #         continuous_action = np.array([0, 1])
+            #     elif action == 3:
+            #         continuous_action = np.array([-1, 1])
+            #     elif action == 4:
+            #         continuous_action = np.array([-1, 0])
+            #     elif action == 5:
+            #         continuous_action = np.array([-1, -1])
+            #     elif action == 6:
+            #         continuous_action = np.array([0, -1])
+            #     else:
+            #         continuous_action = np.array([1, -1])
+            #     continuous_action = continuous_action/np.linalg.norm(continuous_action)
+            # elif action == 8:
+            #     capturing = 1
+            
             if moving:  # Move action
                 other_agents = [agent for j, agent in enumerate(self.agents) if j != i]
                 # theta = action[1]
                 movement = np.clip(continuous_action, -1, 1)
                 self.agents[i].move(movement, other_agents)
             
-            if capturing and self.agent_capture_count[i] < self.capture_limit:
+            if capturing:
+                self.agent_capture_count[i] += 1
                 target = self.targets[i]
                 distance = np.linalg.norm(self.agents[i].position - target.position)
                 if distance <= self.capture_distance and not self.targets_disabled[i]:
                     self.targets_disabled[i] = 1
-                self.agent_capture_count[i] += 1
+                
         
         for i, target in enumerate(self.targets):
             if not self.targets_disabled[i]:
@@ -124,12 +150,6 @@ class PirateEnv(gym.Env):
 
         states, goals = self.observations(), self.goals()
         rewards, dones = self.compute_reward(states, actions, goals)
-        for i in range(self.num_agents):
-            if self.agent_capture_count[i] >= self.capture_limit:
-                dones[i] = 1
-
-        if all(self.targets_disabled):
-            dones = np.ones_like(dones)
 
         if self.steps >= self.max_steps:
             dones = np.ones_like(dones)
@@ -145,16 +165,25 @@ class PirateEnv(gym.Env):
         capture_threshold = state[:, 3]
 
         agent_capturing = action[:, 0]
+        # agent_capturing = action==9
 
         target_pos = goal[:, 0:2]
         target_disabled = goal[:, 2]
 
         agent_target_distance = np.linalg.norm(agent_pos - target_pos, axis=1)
         rewards, dones = np.zeros_like(agent_target_distance), np.zeros_like(agent_target_distance)
-        for i in range(rewards.shape[0]):
-            if agent_target_distance[i] < capture_threshold[i] and agent_capturing[i] and capture_count[i] < 1 and target_disabled[i] == 0:
-                rewards[i] = 1
+        for i in range(self.num_agents):
+            if agent_target_distance[i] < capture_threshold[i] and agent_capturing[i] and capture_count[i] < 1:
+                rewards[i] = 100 #self.max_steps-self.steps
                 dones[i] = 1
+            elif agent_target_distance[i] > capture_threshold[i]:
+                rewards[i] = -agent_target_distance[i] #- self.steps
+            elif agent_target_distance[i] <= capture_threshold[i]:
+                rewards[i] = 0 #- self.steps
+
+            if capture_count[i] >= 1 or target_disabled[i] == 1:
+                dones[i] = 1
+            
             # elif agent_capturing[i]:
             #     rewards[i] = -1
             # elif agent_target_distance[i] > capture_threshold:
@@ -204,6 +233,9 @@ class PirateEnv(gym.Env):
             agent_pos = np.clip(agent.position, 0, self.grid_size - 1) * scale
             center = tuple(agent_pos.astype(int))
             cv2.circle(canvas, center, int(scale // 3), color, -1)
+
+            capture_radius = int(self.capture_distance * scale)
+            cv2.circle(canvas, center, capture_radius, (0, 255, 0), 2)
 
         # Draw the target with continuous position
         for j, target in enumerate(self.targets):

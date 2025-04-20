@@ -2,18 +2,7 @@ import gym
 from gym import spaces
 from gym.envs.registration import EnvSpec
 import numpy as np
-import math
-
-import numpy as np
-import gym
-from gym import spaces
 import matplotlib.pyplot as plt
-import cv2
-import pickle
-
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import numpy as np
 import cv2
 
 class ContinuousMovableObject:

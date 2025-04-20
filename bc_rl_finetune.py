@@ -481,7 +481,7 @@ class PDDPGAgent:
         return critic_loss.item(), actor_loss.item()
 
 
-hindsight_replay=False
+hindsight_replay=True
 num_epochs=4000
 eps_max=0.2
 eps_min=0.0

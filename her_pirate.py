@@ -20,6 +20,11 @@ import numpy as np
 import cv2
 import copy
 
+from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
+log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+writer = SummaryWriter(log_dir=log_dir)
+
 Experience = namedtuple("Experience", field_names="state action reward next_state done")
 
 
@@ -58,27 +63,14 @@ class Actor(nn.Module):
     def __init__(self, state_dim, discrete_dim, continuous_dim, hidden_dim=64, device="cpu"):
         super(Actor, self).__init__()
         latent_dim = 32
-        # self.discrete_model = nn.Sequential(
-        #     nn.Linear(state_dim, hidden_dim, device=device),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(hidden_dim, latent_dim, device=device),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(latent_dim, discrete_dim)
-        # )
-        # self.continuous_model = nn.Sequential(
-        #     nn.Linear(state_dim, hidden_dim, device=device),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(hidden_dim, latent_dim, device=device),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(latent_dim, continuous_dim)
-        # )
         self.model = nn.Sequential(
             nn.Linear(state_dim, hidden_dim, device=device),
             nn.LeakyReLU(),
             nn.Linear(hidden_dim, latent_dim, device=device),
             nn.LeakyReLU(),
-            nn.Linear(latent_dim, discrete_dim+continuous_dim)
         )
+        self.discrete_layer = nn.Linear(latent_dim, discrete_dim)
+        self.continuous_layer = nn.Linear(latent_dim, continuous_dim)
         self.squash = nn.Tanh()
         # should be decoding Q values
 
@@ -89,13 +81,13 @@ class Actor(nn.Module):
         self.continuous_passthrough_layer.bias.requires_grad = False
 
     def forward(self, x):
-        # discrete_qs = self.discrete_model(x)
-        # continuous = self.continuous_model(x) #+ self.continuous_passthrough_layer(x)
-        # return discrete_qs, continuous
-        return self.model(x)
+        latent = self.model(x)
+        discrete_qs = self.discrete_layer(latent)
+        continuous = self.squash(self.continuous_layer(latent) + self.continuous_passthrough_layer(x))
+        return discrete_qs, continuous
 
 class PDDPGAgent:
-    def __init__(self, state_dim, discrete_dim=1, continuous_dim=2, device="cpu"):
+    def __init__(self, state_dim, discrete_dim=1, continuous_dim=2, device="cpu", actor=None):
         self.device = device
         self.discrete_dim = discrete_dim
         self.continuous_dim = continuous_dim
@@ -107,14 +99,17 @@ class PDDPGAgent:
 
         self.memory = ReplayMemory(int(1e6))
 
-        self.actor = Actor(state_dim, discrete_dim, continuous_dim, device=device)
+        if actor:
+            self.actor = actor
+        else:
+            self.actor = Actor(state_dim, discrete_dim, continuous_dim, device=device)
         self.target_actor = copy.deepcopy(self.actor)
 
         self.critic = Critic(state_dim, discrete_dim, continuous_dim, device=device)
         self.target_critic = copy.deepcopy(self.critic)
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.001, weight_decay=0.1)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=0.001, weight_decay=0.1)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-5, weight_decay=1e-5)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3, weight_decay=1e-5)
 
         # Copy parameters to target networks
         self.update_target_hard()
@@ -143,39 +138,41 @@ class PDDPGAgent:
         state = torch.tensor(state, device=self.device, dtype=torch.float32) if type(state) == np.ndarray else state
         if state.dim() == 1:
             state = state.unsqueeze(0)
-        action = self.actor(state)
-        q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
+        # action = self.actor(state)
+        # q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
+        q_values, continuous_action = self.actor(state)
+        epsilon=0
         if random.random() > epsilon:
             tgt_action = q_values.argmax(dim=1).unsqueeze(1)
         else:
             tgt_action = torch.randint(self.discrete_dim, size=(state.shape[0],1))
         action_mask = (tgt_action != 0).expand(-1, 2)
-        continuous_action = continuous_action.clone()
-        continuous_action[action_mask] = 0
+        continuous_action = torch.where(action_mask, torch.zeros_like(continuous_action), continuous_action)
         env_action = torch.cat((tgt_action, continuous_action), dim=1)
         lp_action = torch.cat((q_values, continuous_action), dim=1)
-        return torch.squeeze(env_action).detach().cpu().numpy(), lp_action
+        return env_action.detach().cpu().numpy(), lp_action
     
     def act_target(self, state, epsilon=0.0):
         state = torch.tensor(state, device=self.device, dtype=torch.float32) if type(state) == np.ndarray else state
         if state.dim() == 1:
             state = state.unsqueeze(0)
-        action = self.target_actor(state)
-        q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
+        # action = self.target_actor(state)
+        # q_values, continuous_action = action[:, :self.discrete_dim], action[:, self.discrete_dim:]
+        q_values, continuous_action = self.target_actor(state)
+        epsilon=0
         if random.random() > epsilon:
             tgt_action = q_values.argmax(dim=1).unsqueeze(1)
         else:
             tgt_action = torch.randint(self.discrete_dim, size=(state.shape[0],1))
         action_mask = (tgt_action != 0).expand(-1, 2)
-        continuous_action = continuous_action.clone()
-        continuous_action[action_mask] = 0
+        continuous_action = torch.where(action_mask, torch.zeros_like(continuous_action), continuous_action)
         env_action = torch.cat((tgt_action, continuous_action), dim=1)
         lp_action = torch.cat((q_values, continuous_action), dim=1)
-        return torch.squeeze(env_action).detach().cpu().numpy(), lp_action
+        return env_action.detach().cpu().numpy(), lp_action
 
-    def optimize_model(self):
+    def optimize_model(self, episode=0):
         if len(self.memory) < self.train_start:
-            return
+            return 0, 0
 
         experiences = self.memory.sample(self.batch_size)
         batch = Experience(*zip(*experiences))
@@ -186,12 +183,12 @@ class PDDPGAgent:
         done_batch = torch.cat(batch.done)
         next_state_batch = torch.cat(batch.next_state)
         
-        self.update(state=state_batch, action=action_batch, reward=reward_batch, done=done_batch, next_state=next_state_batch)
+        return self.update(state=state_batch, action=action_batch, reward=reward_batch, done=done_batch, next_state=next_state_batch, episode=episode)
 
     def update(self, state, action, reward, next_state, done, episode=0):
         
         # Critic update
-        wait_step = 5000
+        actor_wait_step = 100
         
         with torch.no_grad():
             # discrete_qs, continuous = self.target_actor(state)
@@ -204,24 +201,26 @@ class PDDPGAgent:
         q = self.critic(state_action.detach())
         critic_loss = nn.MSELoss()(q, target_q.detach())
 
+        # if episode < actor_wait_step:
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        # if episode < wait_step:
-        #     return
-
         # Actor update
         _, actions = self.act(state)
         state_action = torch.cat((state, actions), dim=1)
-        actor_loss = -self.critic(state_action).mean()
+        actor_loss = -self.target_critic(state_action).mean()
 
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+        if episode > actor_wait_step:
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
 
         # Soft update of target networks
         self.update_target_soft()
+
+        return critic_loss.item(), actor_loss.item()
+
 
 
 def train(num_bits=10, num_epochs=10, hindsight_replay=True,
@@ -235,11 +234,12 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
     """
 
     # Parameters taken from the paper, some additional once are found in the constructor of the DQNAgent class.
-    future_k = 4
-    num_cycles = 50
+    future_k = 8
+    num_cycles = 1
     num_episodes = 16
     num_opt_steps = 40
-    max_steps = 20
+    max_steps = 200
+    experiences_per_epoch = 5000
 
     # env = BitFlipEnvironment(num_bits)
     num_agents = 1
@@ -247,10 +247,10 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
 
     state_dim = env.observation_space[0].shape[0]
     goal_dim = env.goal_space[0].shape[0]
-    discrete_dim = 3
+    discrete_dim = 2
     continuous_dim = 2
     agent = PDDPGAgent(state_dim+goal_dim, discrete_dim, continuous_dim)
-
+    # agent = DQNAgent(state_dim+goal_dim, action_dim=10)
     # state, _ = env.reset()
     # done = False
     # while not done:
@@ -272,68 +272,86 @@ def train(num_bits=10, num_epochs=10, hindsight_replay=True,
         print("Epoch: {}, exploration: {:.0f}%, success rate: {:.2f}".format(epoch + 1, 100 * eps, success_rate))
 
         successes = 0
-        for cycle in range(num_cycles):
+        for episode in range(num_episodes):
 
-            for episode in range(num_episodes):
+            # Run episode and cache trajectory
+            episode_trajectory = []
+            state, goal = env.reset()
 
-                # Run episode and cache trajectory
-                episode_trajectory = []
-                state, goal = env.reset()
+            state = torch.tensor(state, dtype=torch.float32)
+            goal = torch.tensor(goal, dtype=torch.float32)
 
-                state = torch.tensor(state, dtype=torch.float32)
+            for step in range(max_steps):
+
+                state_ = torch.cat((state, goal), dim=-1)
+                action, lp_action = agent.act(state_, eps)
+                next_state, reward, done, goal = env.step(action) # Do this because environment is single agent (for now)
+
+                next_state = torch.tensor(next_state, dtype=torch.float32)
+                reward = torch.tensor(reward, dtype=torch.float32)
+                done = torch.tensor(done, dtype=torch.float32)
                 goal = torch.tensor(goal, dtype=torch.float32)
 
-                for step in range(max_steps):
+                episode_trajectory.append(Experience(state, lp_action, reward, next_state, done))
+                state = next_state
+                if reward > 0:
+                    successes += 1
+                    break
+                if torch.any(done):
+                    break
 
-                    state_ = torch.cat((state, goal), dim=-1)
-                    action, lp_action = agent.act(state_, eps)
-                    next_state, reward, done, _ = env.step(action) # Do this because environment is single agent (for now)
 
-                    next_state = torch.tensor(next_state, dtype=torch.float32)
-                    reward = torch.tensor(reward, dtype=torch.float32)
-                    done = torch.tensor(done, dtype=torch.float32)
+            # Fill up replay memory
+            steps_taken = step
+            for t in range(steps_taken):
 
-                    episode_trajectory.append(Experience(state, lp_action, reward, next_state, done))
-                    state = next_state
-                    if reward > 0:
-                        successes += 1
-                        break
+                # Standard experience replay
+                state, action, reward, next_state, done = episode_trajectory[t]
+                state_, next_state_ = torch.cat((state, goal), dim=-1), torch.cat((next_state, goal), dim=-1)
+                agent.push_experience(state_, action, reward, next_state_, done)
 
-                # Fill up replay memory
-                steps_taken = step
-                for t in range(steps_taken):
+                # Hindsight experience replay
+                if hindsight_replay:
+                    # modified with G as final state
+                    # new_goal = torch.cat((episode_trajectory[steps_taken].state[:, 0:2], torch.zeros((num_agents, 1))), dim=1)
+                    # new_reward, new_done = env.compute_reward(state, action, new_goal)
+                    # new_reward = torch.tensor(new_reward, dtype=torch.float32)
+                    # new_done = torch.tensor(new_done, dtype=torch.float32)
+                    # state_, next_state_ = torch.cat((state, new_goal), dim=1), torch.cat((next_state, new_goal), dim=1)
+                    # agent.push_experience(state_, action, new_reward, next_state_, new_done)
+                    for _ in range(future_k):
 
-                    # Standard experience replay
-                    state, action, reward, next_state, done = episode_trajectory[t]
-                    state_, next_state_ = torch.cat((state, goal), dim=-1), torch.cat((next_state, goal), dim=-1)
-                    agent.push_experience(state_, action, reward, next_state_, done)
+                        future = random.randint(t, steps_taken)  # index of future time step
+                        # new_goal = torch.cat((torch.randint(0, env.grid_size, size=(num_agents, 2)), torch.zeros((num_agents, 1))), dim=1)
+                        new_goal = torch.cat((episode_trajectory[future].state[:,0:2], torch.zeros((num_agents, 1))), dim=1)  # take future next_state and set as goal
+                        new_reward, new_done = env.compute_reward(state, action, new_goal)
+                        
+                        new_reward = torch.tensor(new_reward, dtype=torch.float32)
+                        new_done = torch.tensor(new_done, dtype=torch.float32)
+                        
+                        state_, next_state_ = torch.cat((state, new_goal), dim=1), torch.cat((next_state, new_goal), dim=1)
+                        agent.push_experience(state_, action, new_reward, next_state_, new_done)
+                        # if new_reward > 0:
+                        #     print(next_state, new_goal)
 
-                    # Hindsight experience replay
-                    if hindsight_replay:
-                        for _ in range(future_k):
-                            future = random.randint(t, steps_taken)  # index of future time step
-                            new_goal = torch.cat((episode_trajectory[future].state[:,0:2], torch.zeros((num_agents, 1))), dim=1)  # take future next_state and set as goal
-                            new_reward, new_done = env.compute_reward(state, action, new_goal)
-                            
-                            new_reward = torch.tensor(new_reward, dtype=torch.float32)
-                            new_done = torch.tensor(new_done, dtype=torch.float32)
-                            
-                            state_, next_state_ = torch.cat((state, new_goal), dim=1), torch.cat((next_state, new_goal), dim=1)
-                            agent.push_experience(state_, action, new_reward, next_state_, new_done)
-                            # if new_reward > 0:
-                            #     print(next_state, new_goal)
+        # Optimize
+        for opt_step in range(num_opt_steps-1):
+            agent.optimize_model(episode=epoch)
+        critic_loss, actor_loss = agent.optimize_model(episode=epoch)
+        # actor_loss = agent.optimize_model(episode=epoch)
+        agent.update_target_soft()
 
-            # Optimize DQN
-            # for opt_step in range(num_opt_steps):
-            #     agent.optimize_model()
-            agent.optimize_model()
-            agent.update_target_hard()
-
-        success_rate = successes / (num_episodes * num_cycles)
+        success_rate = successes / num_episodes
         success_rates.append(success_rate)
 
-    env.show_video(title="After Training")
-    env.generate_video("pirate_rollout.mp4")
+        writer.add_scalar("Loss/Critic", critic_loss, epoch)
+        writer.add_scalar("Loss/Actor", actor_loss, epoch)
+        writer.add_scalar("Success Rate", success_rate, epoch)
+
+        env.generate_video(f"{log_dir}/rollout_{epoch}.mp4")
+
+    # env.show_video(title="After Training")
+    # env.generate_video(f"{log_dir}/pirate_rollout_{hindsight_replay}.mp4")
 
     return success_rates
 

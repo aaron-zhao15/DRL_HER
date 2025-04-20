@@ -19,37 +19,6 @@ from datetime import datetime
 log_dir = f"runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 writer = SummaryWriter(log_dir=log_dir)
 
-# Define a simple neural network for classification
-class StateClassifier(nn.Module):
-    def __init__(self, input_dim):
-        super(StateClassifier, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-    
-    def forward(self, x):
-        return self.fc(x)
-    
-class StateMover(nn.Module):
-    def __init__(self, input_dim):
-        super(StateMover, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2),
-            nn.Tanh()
-        )
-    
-    def forward(self, x):
-        return self.fc(x)
-    
 class Actor(nn.Module):
     def __init__(self, state_dim, discrete_dim, continuous_dim, hidden_dim=64, device="cpu"):
         super(Actor, self).__init__()
@@ -512,7 +481,7 @@ class PDDPGAgent:
         return critic_loss.item(), actor_loss.item()
 
 
-hindsight_replay=False
+hindsight_replay=True
 num_epochs=4000
 eps_max=0.2
 eps_min=0.0
@@ -589,6 +558,9 @@ for epoch in range(num_epochs):
             if reward > 0:
                 successes += 1
                 break
+            if torch.any(done):
+                break
+
 
         # Fill up replay memory
         steps_taken = step

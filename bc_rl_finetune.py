@@ -59,16 +59,16 @@ def collect_data_uniform(env, n_data=70000):
     state_cap_count = np.random.uniform(0, 1, (n_data, 1))
     state_cap_range = 3*np.ones((n_data, 1))
     # state_cap_range = np.random.uniform(0, env.grid_size, (n_data, 1))
-    states = np.concat((state_pos, state_cap_count, state_cap_range), axis=1)
+    states = np.concatenate((state_pos, state_cap_count, state_cap_range), axis=1)
 
     goal_pos = np.random.uniform(0, env.grid_size, (n_data, 2))
     goal_captured = np.random.randint(2, size=(n_data, 1))
-    goals = np.concat((goal_pos, goal_captured), axis=1)
+    goals = np.concatenate((goal_pos, goal_captured), axis=1)
 
     # labels = Heuristic.determine_capture(states, goals)
     # labels = Heuristic.determine_move(states, goals)
     labels = Heuristic.determine_move_and_capture(states, goals)
-    states = np.concat((states, goals), axis=1)
+    states = np.concatenate((states, goals), axis=1)
 
     return states.astype(np.float32), labels.astype(np.float32)
 
@@ -87,7 +87,7 @@ def collect_data_from_env(env, num_episodes=1000):
             # label = Heuristic.determine_capture(state, goal)
             # label = Heuristic.determine_move(state, goal)
             label = Heuristic.determine_move_and_capture(state, goal)
-            state_ = np.concat((state, goal), axis=1)
+            state_ = np.concatenate((state, goal), axis=1)
 
             for i in range(state_.shape[0]):
                 state_list.append(state_[i].astype(np.float32))
@@ -172,7 +172,7 @@ class Heuristic:
     def determine_move_and_capture(state, goal):
         movement = Heuristic.determine_move(state, goal)
         capture = Heuristic.determine_capture(state, goal)[:, None]
-        return np.concat((capture, movement), axis=1)
+        return np.concatenate((capture, movement), axis=1)
     
 def evaluate(model, test_loader, criterion):
     model.eval()
@@ -296,7 +296,7 @@ successes = 0
 for _ in range(64):
     env.reset()
     for step in range(env.max_steps):
-        state_ = np.concat((state, goal), axis=1)
+        state_ = np.concatenate((state, goal), axis=1)
 
         # Get heuristic-based move action
         # move_action = torch.tensor(Heuristic.move_act(state_), dtype=torch.float32).to(device)
@@ -307,7 +307,7 @@ for _ in range(64):
         move_action = cont_out.detach().numpy()
         capture_action = disc_out.argmax(dim=1).unsqueeze(1)
         # Combine actions
-        action = np.concat((capture_action, move_action), axis=1)
+        action = np.concatenate((capture_action, move_action), axis=1)
 
         # Step environment
         next_state, reward, done, goal = env.step(action)
